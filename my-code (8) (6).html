@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+<meta charset="UTF-8">
+<title>تبدیل تصویر و ویدیو به ASCII با دانلود WebM</title>
+<style>
+  body { font-family: monospace; text-align: center; margin: 20px; background: #222; color: #fff; }
+  pre { width: 95%; white-space: pre; border: 1px solid #ccc; padding: 10px; background: #000; display: inline-block; overflow-x: auto; max-height: 500px; }
+  input[type="number"] { width: 60px; }
+  input[type="range"] { width: 300px; }
+  button { margin-left: 10px; margin-top: 5px; }
+</style>
+</head>
+<body>
+
+<h2>تبدیل تصویر و ویدیو به ASCII</h2>
+
+<h3>تصویر</h3>
+<input type="file" id="imageInput" accept="image/*"><br><br>
+<label>عرض ASCII: <input type="number" id="asciiWidth" value="150" min="10" max="400"></label>
+<button id="convertImageBtn">تبدیل تصویر</button>
+<button id="downloadImageAsciiBtn">دانلود ASCII تصویر</button><br><br>
+<label>زوم فونت تصویر: <span id="zoomValue">1</span>x</label><br>
+<input type="range" id="zoomSlider" min="0.1" max="5" step="0.05" value="1"><br><br>
+<pre id="asciiOutput"></pre>
+
+<hr>
+
+<h3>ویدیو</h3>
+<input type="file" id="videoInput" accept="video/*"><br>
+<label>عرض ASCII: <input type="number" id="videoWidth" value="80" min="10" max="200"></label>
+<label>FPS: <input type="number" id="videoFps" value="5" min="1" max="30"></label><br>
+<button id="convertVideoBtn">تبدیل ویدیو</button>
+<button id="downloadVideoAsciiBtn">دانلود ویدیو ASCII</button><br><br>
+<label>زوم فونت ویدیو: <span id="zoomVideoValue">1</span>x</label><br>
+<input type="range" id="zoomVideoSlider" min="0.1" max="5" step="0.05" value="1"><br><br>
+<pre id="asciiVideoOutput"></pre>
+
+<script>
+const chars = "$@B%8&WM#*oahkbdpqwmZO0QLCJUYXzcvunxrjft/|()1{}[]?-_+~<>i!lI;:,\"^`'.";
+
+// --- تصویر ---
+let currentAsciiImage = '';
+document.getElementById('convertImageBtn').addEventListener('click', () => {
+    const fileInput = document.getElementById('imageInput');
+    if (!fileInput.files[0]) return alert("لطفاً یک تصویر انتخاب کنید.");
+    const asciiWidth = parseInt(document.getElementById('asciiWidth').value) || 150;
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = e => img.src = e.target.result;
+    reader.readAsDataURL(fileInput.files[0]);
+
+    img.onload = function() {
+        const aspectRatio = img.height / img.width;
+        const width = asciiWidth;
+        const height = Math.round(width * aspectRatio * 0.55);
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        const imgData = ctx.getImageData(0, 0, width, height).data;
+
+        let ascii = '';
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = (y*width + x)*4;
+                const r = imgData[idx];
+                const g = imgData[idx+1];
+                const b = imgData[idx+2];
+                const brightness = (0.299*r + 0.587*g + 0.114*b)/255;
+                const charIndex = Math.floor((chars.length-1)*(1-brightness));
+                ascii += chars[charIndex];
+            }
+            ascii += '\n';
+        }
+        currentAsciiImage = ascii;
+        document.getElementById('asciiOutput').textContent = ascii;
+    };
+});
+
+document.getElementById('downloadImageAsciiBtn').addEventListener('click', () => {
+    if (!currentAsciiImage) return alert("ابتدا تصویری را تبدیل کنید.");
+    const blob = new Blob([currentAsciiImage], {type:'text/plain;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = "image_ascii.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+});
+
+const zoomSlider = document.getElementById('zoomSlider');
+const asciiOutput = document.getElementById('asciiOutput');
+const zoomValue = document.getElementById('zoomValue');
+zoomSlider.addEventListener('input', () => {
+    const scale = zoomSlider.value;
+    asciiOutput.style.fontSize = (scale*12)+"px";
+    zoomValue.textContent = scale;
+});
+
+// --- ویدیو ---
+let asciiFrames = [];
+let recording = false;
+document.getElementById('convertVideoBtn').addEventListener('click', () => {
+    const fileInput = document.getElementById('videoInput');
+    if (!fileInput.files[0]) return alert("لطفاً یک ویدیو انتخاب کنید.");
+
+    const videoWidth = parseInt(document.getElementById('videoWidth').value) || 80;
+    const fps = parseInt(document.getElementById('videoFps').value) || 5;
+
+    const video = document.createElement('video');
+    video.src = URL.createObjectURL(fileInput.files[0]);
+    video.crossOrigin = "anonymous";
+    video.load();
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const asciiVideoOutput = document.getElementById('asciiVideoOutput');
+    asciiVideoOutput.textContent = '';
+    asciiFrames = [];
+
+    video.addEventListener('loadeddata', () => {
+        const aspectRatio = video.videoHeight / video.videoWidth;
+        const height = Math.round(videoWidth * aspectRatio * 0.55);
+        canvas.width = videoWidth;
+        canvas.height = height;
+
+        video.currentTime = 0;
+        recording = true;
+
+        video.addEventListener('seeked', processFrame);
+
+        function processFrame() {
+            if(!recording) return;
+            ctx.drawImage(video, 0, 0, videoWidth, height);
+            const imgData = ctx.getImageData(0,0,videoWidth,height).data;
+            let ascii = '';
+            for (let y=0;y<height;y++){
+                for(let x=0;x<videoWidth;x++){
+                    const idx=(y*videoWidth+x)*4;
+                    const r=imgData[idx], g=imgData[idx+1], b=imgData[idx+2];
+                    const brightness=(0.299*r+0.587*g+0.114*b)/255;
+                    const charIndex=Math.floor((chars.length-1)*(1-brightness));
+                    ascii+=chars[charIndex];
+                }
+                ascii+='\n';
+            }
+            asciiFrames.push(ascii);
+            asciiVideoOutput.textContent = ascii;
+
+            if(video.currentTime + 1/fps < video.duration){
+                video.currentTime += 1/fps;
+            } else {
+                recording = false;
+            }
+        }
+    });
+});
+
+// دانلود ویدیو ASCII به WebM
+document.getElementById('downloadVideoAsciiBtn').addEventListener('click', async () => {
+    if(asciiFrames.length===0) return alert("ابتدا ویدیو را تبدیل کنید.");
+
+    const videoWidth = parseInt(document.getElementById('videoWidth').value) || 80;
+    const height = Math.round(videoWidth * (asciiFrames[0].split('\n').length/(videoWidth)) * 0.55);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = videoWidth*10;
+    canvas.height = height*18;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.font = '16px monospace';
+    ctx.fillStyle = 'white';
+    ctx.textBaseline = 'top';
+
+    const stream = canvas.captureStream(parseInt(document.getElementById('videoFps').value)||5);
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = () => {
+        const blob = new Blob(chunks, {type:'video/webm'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'ascii_video.webm';
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+    recorder.start();
+
+    for(let i=0;i<asciiFrames.length;i++){
+        ctx.fillStyle='black';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.fillStyle='white';
+        asciiFrames[i].split('\n').forEach((line,y)=>{
+            ctx.fillText(line,0, y * 18
+        );
+    });
+    // هر فریم را برای مدت کوتاهی نگه می‌داریم تا MediaRecorder آن را ضبط کند
+    await new Promise(r => setTimeout(r, 1000 / (parseInt(document.getElementById('videoFps').value)||5)));
+}
+
+// پایان ضبط
+recorder.stop();
+});
+
+// زوم فونت ویدیو
+const zoomVideoSlider = document.getElementById('zoomVideoSlider');
+const asciiVideoOutput = document.getElementById('asciiVideoOutput');
+const zoomVideoValue = document.getElementById('zoomVideoValue');
+zoomVideoSlider.addEventListener('input', () => {
+    const scale = zoomVideoSlider.value;
+    asciiVideoOutput.style.fontSize = (scale*12)+"px";
+    zoomVideoValue.textContent = scale;
+});
+</script>
+</body>
+</html>
